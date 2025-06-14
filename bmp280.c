@@ -66,8 +66,8 @@ static int bmp280_remove(struct i2c_client *client)
 {
     printk(KERN_INFO, "BMP280: Removed\n");
 
-    device_remove_file(&client->dev, dev_attr_temperature);
-    device_remove_file(&client->dev, dev_attr_pressure);
+    device_remove_file(&client->dev, &dev_attr_temperature);
+    device_remove_file(&client->dev, &dev_attr_pressure);
 
     return 0;
 }
