@@ -5,3 +5,7 @@
 | SCL        | GPIO 3 (pin 5)             |
 | SDA        | GPIO 2 (pin 3)             |
 
+
+Documentation -> https://embetronicx.com/tutorials/linux/device-drivers
+
+

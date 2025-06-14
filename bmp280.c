@@ -2,12 +2,27 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/i2c.h>       // For I2C support
+#include <linux/device.h>
+#include <linux/device.h>
 #include <linux/fs.h>        // For file operations if needed
 #include <linux/uaccess.h>   // For copy_to_user if needed
+#include <linux/sysfs.h>
+#include<linux/kobject.h> 
 
 #define DRIVER_NAME "bmp280"
 
-dev_t dev = MKDEV(235, 0); // Major: 235, Minor: 0
+static struct device_attribute dev_attr_temperature = __ATTR(Temperature, 0444, temperature_show, NULL); //Sysfs object that would be temperature file for the device driver
+static struct device_attribute dev_attr_pressure = _ATTR(Pressure, 0444, pressure_show, NULL); //Sysfs object that would be pressure file for the device driver
+
+struct kobject *bmp280; //Sysfs object that would store the temperature and pressure files
+
+static ssize_t temperature_show(struct device *dev, struct device_attribute *attr, char *buf) {
+    return sprintf(buf, "70\n"); // Returns a dummy temperature value
+}
+
+static ssize_t pressure_show(struct device *dev, struct device_attribute *attr, char *buf) {
+    return sprintf(buf, "10000\n"); // Returns a dummy temperature value
+}
 
 /*
 * Purpose: Intializes the sensor driver 
@@ -30,6 +45,12 @@ dev_t dev = MKDEV(235, 0); // Major: 235, Minor: 0
 static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
     printk(INFO, "BMP280: Probed at address 0x%02x\n", client->addr);
+
+    bmp280 = kobject_create_and_add("bmp280", kernel_kobj); 
+
+    sysfs_create_file(bmp280, dev_attr_temperature.attr);
+    systf_create_file(bnp280, dev_attr_pressure.attr)
+
     return 0;
 }
 
@@ -52,6 +73,12 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
 static int bmp280_remove(struct i2c_client *client)
 {
     printk(INFO, "BMP280: Removed\n");
+    
+    kobject_put(bmp280);
+
+    sysfs_remove_file(kernel_kobj, dev_attr_temperature.attr)
+    sysfs_remove_file(kernel_kobj, dev_attr_pressure.attr)
+
     return 0;
 }
 
