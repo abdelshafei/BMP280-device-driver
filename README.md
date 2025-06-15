@@ -1,4 +1,4 @@
-# Implementation of BMP280 device driver in the Linux kernel-space 
+# BMP280 device driver 
 
 ## BMP280 Sensor Connection
 
