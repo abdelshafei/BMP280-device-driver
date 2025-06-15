@@ -7,22 +7,76 @@
 
 #define DRIVER_NAME "bmp280"
 
+struct bmp280_data {
+    struct i2c_client *client; // For outside of probe reference to client
+
+    /* */
+    unsigned short dig_T1, dig_P1; 
+    short dig_T2, dig_T3,
+    dig_P2, dig_P3, dig_P4, dig_P5,
+    dig_P6, dig_P7, dig_P8, dig_P9;
+};
 
 
 static ssize_t temperature_show(struct device *dev, struct device_attribute *attr, char *buf) {
     printk(KERN_INFO, "Measuring and Displaying the calculated temperature...");
 
-    return sprintf(buf, "70\n"); // Returns a dummy temperature value
+    struct bmp280_data *data = i2c_get_clientdata(to_i2c_client(dev)); // Used to reference the I2C api
+
+    u8 measure_status;
+    int tries = 10;
+    do {
+        measure_status = i2c_smbus_read_byte_data(data->client, 0xF3);
+        msleep(1);
+    } while((measure_status & 0x08) && --tries > 0);
+
+    int msb = i2c_smbus_read_byte_data(data->client, 0xFA);
+    int lsb = i2c_smbus_read_byte_data(data->client, 0xFB);
+    int xlsb = i2c_smbus_read_byte_data(data->client, 0xFC);
+
+    if(msb < 0 || lsb < 0 || xlsb < 0) {
+        dev_err(&data->client->dev, "Failed to read from raw temperature data registers\n");
+        return -EIO
+    }
+
+    long signed int adc = ((msb << 12) | (lsb << 4) | (xlsb >> 4));
+
+    long signed int var1, var2, t_fine, T;
+    var1 = ((((adc >> 3) - ((int32_t)data->dig_T1 << 1))) * ((int32_t)data->dig_T2)) >> 11;
+    var2 = (((((adc >> 4) - ((int32_t)data->dig_T1)) * ((adc >> 4) - ((int32_t)data->dig_T1))) >> 12) * ((int32_t)data->dig_T3)) >> 14;
+
+    t_fine =  var1 + var2;
+    T = (t_fine * 5 + 128) >> 8;
+
+    return sprintf(buf, "The Surrounding Temperature is: %d°C\n", T);
 }
 
 static ssize_t pressure_show(struct device *dev, struct device_attribute *attr, char *buf) {
     printk(KERN_INFO, "Measuring and Displaying the calculated pressure...");
 
-    return sprintf(buf, "10000\n"); // Returns a dummy temperature value
+    return sprintf(buf, "10000\n"); // Returns a dummy  pressure value
 }
 
 static struct device_attribute dev_attr_temperature = __ATTR(temperature, 0444, temperature_show, NULL); //Sysfs object that would be temperature file for the device driver
 static struct device_attribute dev_attr_pressure = __ATTR(pressure, 0444, pressure_show, NULL); //Sysfs object that would be pressure file for the device driver
+
+static unsigned short read_u16_from_i2c(struct i2c_client *client, u8 addr)
+{
+    int lsb = i2c_smbus_read_byte_data(client, addr);
+    int msb = i2c_smbus_read_byte_data(client, addr + 1);
+    if (lsb < 0 || msb < 0)
+        return -1; 
+    return (msb << 8) | lsb;
+}
+
+static short read_s16_from_i2c(struct i2c_client *client, u8 addr)
+{
+    int lsb = i2c_smbus_read_byte_data(client, addr);
+    int msb = i2c_smbus_read_byte_data(client, addr + 1);
+    if (lsb < 0 || msb < 0)
+        return -1; 
+    return ((msb << 8) | lsb);
+}
 
 /*
 * Purpose: Intializes the sensor driver 
@@ -111,10 +165,35 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
         return -EIO;
     }
 
+    struct bmp280_data *data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
+    data->client = client;
+    i2c_set_clientdata(client, data);
+
+    /* Intialization of calibration registers for temp/pressure calculations */
+    data->dig_T1 = read_u16_from_i2c(client, 0x88);
+    data->dig_T2 = read_s16_from_i2c(client, 0x8A);
+    data->dig_T3 = read_s16_from_i2c(client, 0x8C);
+
+    data->dig_P1 = read_u16_from_i2c(client, 0x8E);
+    data->dig_P2 = read_s16_from_i2c(client, 0x90);
+    data->dig_P3 = read_s16_from_i2c(client, 0x92);
+    data->dig_P4 = read_s16_from_i2c(client, 0x94);
+    data->dig_P5 = read_s16_from_i2c(client, 0x96);
+    data->dig_P6 = read_s16_from_i2c(client, 0x98);
+    data->dig_P7 = read_s16_from_i2c(client, 0x9A);
+    data->dig_P8 = read_s16_from_i2c(client, 0x9C);
+    data->dig_P9 = read_s16_from_i2c(client, 0x9E);
 
 
-    device_create_file(&client->dev, &dev_attr_temperature);
-    device_create_file(&client->dev, &dev_attr_pressure);
+    if(device_create_file(&client->dev, &dev_attr_temperature) < 0) {
+        dev_err(&client_dev, "Failed to load the temperature file");
+        return -EIO;
+    }
+
+    if(device_create_file(&client->dev, &dev_attr_pressure) < 0) {
+        dev_err(&client_dev, "Failed to load the pressure file");
+        return -EIO;
+    }
 
     return 0;
 }
@@ -132,8 +211,8 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
 *
 *         
 * Return: 
-*   <= 0: Indicates Success (with 0 being the highest priority to load)
-*   > 0: Indicates Failure to load kernel module 
+*   <= 0: Indicates Success 
+*   > 0: Indicates Failure to remove kernel module 
 */
 static int bmp280_remove(struct i2c_client *client)
 {
