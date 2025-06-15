@@ -53,23 +53,27 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
     }
 
     // Resets the sensor old configurations
-    i2c_smbus_write_byte_data(client, 0xE0, 0xB6);
+    if(i2c_smbus_write_byte_data(client, 0xE0, 0xB6) < 0) {
+        dev_err(&client->dev, "Failed to reset sensor\n");
+        return -EIO;
+    }
     msleep(5);
 
     /* 
-    *  Status register has two statuses
-    *  either measuring at bit 3 which is set to 1 where its still busy
-    *  or im_update at bit 0 which is set to 1 where its ready for data to be copied
+    *  Status register has two bits:
+    *   • measuring[0] at bit 3 which is set to 1 when conversion is running or 0 when results are transferred to the registers
+    *   • im_update[0] at bit 0 which is set to 1 where its copying images to NVM or 0 when idle
+    *
+    *   We have to make sure the im_update bit is 0 to start communicating or else garbage data will result from it.
     */
     u8 status;
     int tries = 10; // Gives enough time for the NVM to perform data copy
     do {
 
         status = i2c_smbus_read_byte_data(client, 0xF3);
-        if(status & 0x01) break;
         msleep(1);
 
-    } while(--tries > 0);
+    } while((status & 0x01) && --tries > 0);
 
     // Setting up the measurement register
 
@@ -84,7 +88,10 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
     * |      osrs_t[2 : 0]      |      osrs_p[2 : 0]      |    mode[1 : 0]    |
     * |-------------------------|-------------------------|-------------------|
     */
-    i2c_smbus_write_byte_data(client, 0xF4, 0x2F);
+    if(i2c_smbus_write_byte_data(client, 0xF4, 0x2F) < 0) {
+        dev_err(&client->dev, "Failed to configure the ctrl_meas register\n");
+        return -EIO;
+    }
 
     //Setting up the config register
 
@@ -99,7 +106,10 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
     * |       t_sb[2 : 0]       |      filter[2 : 0]      |      |spi3w_en[0]|
     * |-------------------------|-------------------------|------|-----------|
     */
-    i2c_smbus_write_byte_data(client, 0xF5, 0x48);
+    if(i2c_smbus_write_byte_data(client, 0xF5, 0x48) < 0) {
+        dev_err(&client->dev, "Failed to configure the config register\n");
+        return -EIO;
+    }
 
 
 
