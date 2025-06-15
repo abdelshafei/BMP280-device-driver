@@ -6,6 +6,8 @@
 | SDA        | GPIO 2 (pin 3)             |
 
 
-Documentation -> https://embetronicx.com/tutorials/linux/device-drivers
+Device Driver Documentation -> https://embetronicx.com/tutorials/linux/device-drivers/linux-device-driver-part-1-introduction/
+
+Datasheet Register Documentation -> https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/
 
 
