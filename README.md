@@ -1,3 +1,7 @@
+# Implementation of BMP280 device driver in the Linux kernel-space 
+
+## BMP280 Sensor Connection
+
 | BMP280 Pin | Raspberry Pi 4 Connection  |
 |------------|----------------------------|
 | VCC        | 3.3V (pin 1)               |
@@ -5,9 +9,12 @@
 | SCL        | GPIO 3 (pin 5)             |
 | SDA        | GPIO 2 (pin 3)             |
 
+---
 
-Device Driver Documentation -> https://embetronicx.com/tutorials/linux/device-drivers/linux-device-driver-part-1-introduction/
+## Documentation
 
-Datasheet Register Documentation -> https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/
+- **Device Driver Documentation:**  
+  [Linux Device Driver Tutorial - Embetronicx](https://embetronicx.com/tutorials/linux/device-drivers/linux-device-driver-part-1-introduction/)
 
-
+- **Datasheet and Register Documentation:**  
+  [Bosch BMP280 Datasheet](https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/)
