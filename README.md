@@ -50,4 +50,10 @@ cd /sys/bus/i2c/devices/1-0076/
 
 # 5. Read temperature and pressure
 cat Bmp280-Calculations
+```
 
+---
+
+## Demonstration video
+
+https://youtu.be/1EwXVq_9rCo
