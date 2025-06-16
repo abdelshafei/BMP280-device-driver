@@ -18,6 +18,29 @@ struct bmp280_data {
     dig_P6, dig_P7, dig_P8, dig_P9;
 };
 
+/*
+ * Purpose:
+ *   Sysfs show function for the BMP280 driver.
+ *   When userspace reads the sysfs attribute, this function fetches and formats
+ *   the latest temperature and pressure readings from the sensor, applies compensation
+ *   algorithms, and writes the formatted string to the provided buffer.
+ *
+ * Parameters:
+ *   @dev:  Pointer to the device structure representing the BMP280 sensor.
+ *   @attr: Pointer to the device attribute structure (not used here).
+ *   @buf:  Output buffer where the result string is written.
+ *
+ * Return:
+ *   On success: Number of bytes written to the buffer (as per sysfs show convention).
+ *   On failure: Negative error code (e.g., -EIO) if sensor communication fails.
+ *
+ * Details:
+ *   This function is called each time a user reads the sysfs file (e.g.,
+ *   'cat /sys/bus/i2c/devices/1-0076/Bmp280-Calculations').
+ *   It reads raw temperature and pressure values from the sensor, applies
+ *   Bosch's integer compensation formula, and formats the results as a
+ *   human-readable string in buf.
+ */
 static ssize_t pressureAndTemperature_show(struct device *dev, struct device_attribute *attr, char *buf) {
     printk(KERN_INFO "Measuring and Displaying the calculated temperature and pressure...");
 
@@ -64,7 +87,7 @@ static ssize_t pressureAndTemperature_show(struct device *dev, struct device_att
     var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)data->dig_P1) >> 33;
 
     if (var1 == 0) {
-        return sprintf(buf, "Temperature: %ld°C\n Pressure: 0Pa\n", T/100);
+        return sprintf(buf, "Temperature: %ld°C\nPressure: 0Pa\n", T/100);
     } 
 
     P = 1048576 - adc_P;
@@ -74,23 +97,31 @@ static ssize_t pressureAndTemperature_show(struct device *dev, struct device_att
     P = ((P + var1 + var2) >> 8) + (((int64_t)data->dig_P7) << 4);
 
 
-    return sprintf(buf, "Temperature: %ld°C\n Pressure: %ldPa\n", T/100, P/256);
+    return sprintf(buf, "Temperature: %ld°C\nPressure: %ldPa\n", T/100, P/256);
 }
 static struct device_attribute dev_attr_pressureAndTemperature = __ATTR(Bmp280-Calculations, 0444, pressureAndTemperature_show, NULL); //Sysfs object that would be pressure file for the device driver
 
 /*
-* Purpose: reads and combines two bytes from two adjacent addresses (Least Significant Byte and Most Significant Byte) for unsigned short types
-*
-*
-* Parameters: 
-*   struct i2c_client *client (input): Represents the specific I2C device instance that matches this driver.
-*   u8 addr (input): address of the Least Significant Byte
-*         
-*
-* Return: 
-*   <= 0: Indicates Success 
-*   > 0: Indicates Failure to read bytes from either adjacent addresses 
-*/
+ * Purpose:
+ *   Helper function for the BMP280 driver to read a 16-bit unsigned value
+ *   from two consecutive I2C registers. Used to fetch calibration parameters
+ *   and other multi-byte values stored in LSB-MSB order.
+ *
+ * Parameters:
+ *   @client: Pointer to the I2C client structure representing the BMP280 sensor.
+ *   @addr:   Register address of the least significant byte (LSB). The function
+ *            reads from 'addr' and 'addr + 1' to assemble the full value.
+ *
+ * Return:
+ *   On success: 16-bit unsigned value read from the sensor, assembled as (MSB << 8) | LSB.
+ *   On failure: -1 (all bits set) if either I2C read fails.
+ *
+ * Details:
+ *   Reads the LSB at 'addr', then the MSB at 'addr + 1', combining them into a single
+ *   unsigned short value as specified by the BMP280 datasheet (little-endian order).
+ *   The function is intended for use during driver initialization to fetch sensor
+ *   calibration constants.
+ */
 static unsigned short read_u16_from_i2c(struct i2c_client *client, u8 addr)
 {
     int lsb = i2c_smbus_read_byte_data(client, addr);
@@ -101,18 +132,26 @@ static unsigned short read_u16_from_i2c(struct i2c_client *client, u8 addr)
 }
 
 /*
-* Purpose: reads and combines two bytes from two adjacent addresses (Least Significant Byte and Most Significant Byte) for short types
-*
-*
-* Parameters: 
-*   struct i2c_client *client (input): Represents the specific I2C device instance that matches this driver.
-*   u8 addr (input): address of the Least Significant Byte
-*         
-*
-* Return: 
-*   <= 0: Indicates Success 
-*   > 0: Indicates Failure to read bytes from either adjacent addresses 
-*/
+ * Purpose:
+ *   Helper function for the BMP280 driver to read a 16-bit signed value
+ *   from two consecutive I2C registers. Used to fetch calibration parameters
+ *   and other multi-byte values stored in LSB-MSB order.
+ *
+ * Parameters:
+ *   @client: Pointer to the I2C client structure representing the BMP280 sensor.
+ *   @addr:   Register address of the least significant byte (LSB). The function
+ *            reads from 'addr' and 'addr + 1' to assemble the full value.
+ *
+ * Return:
+ *   On success: 16-bit unsigned value read from the sensor, assembled as (MSB << 8) | LSB.
+ *   On failure: -1 (all bits set) if either I2C read fails.
+ *
+ * Details:
+ *   Reads the LSB at 'addr', then the MSB at 'addr + 1', combining them into a single
+ *   unsigned short value as specified by the BMP280 datasheet (little-endian order).
+ *   The function is intended for use during driver initialization to fetch sensor
+ *   calibration constants.
+ */
 static short read_s16_from_i2c(struct i2c_client *client, u8 addr)
 {
     int lsb = i2c_smbus_read_byte_data(client, addr);
@@ -123,21 +162,30 @@ static short read_s16_from_i2c(struct i2c_client *client, u8 addr)
 }
 
 /*
-* Purpose: Intializes the sensor driver 
-*
-*
-* Parameters: 
-*   struct i2c_client *client (input): Represents the specific I2C device instance that matches this driver.
-*       - Can be used for:
-*           > Read/Write via I2C
-*           > Register sysfs files
-*           > Logging things in kernel logs
-*         
-*
-* Return: 
-*   <= 0: Indicates Success (with 0 being the highest priority to load)
-*   > 0: Indicates Failure to load kernel module 
-*/
+ * Purpose:
+ *   Probe function for the BMP280 driver, called by the I2C subsystem when the
+ *   driver is matched to a device. Initializes the sensor, verifies the chip ID,
+ *   resets configuration registers, reads calibration parameters, and creates
+ *   sysfs entries for user access.
+ *
+ * Parameters:
+ *   @client: Pointer to the I2C client structure representing the BMP280 device.
+ *            Used for I2C communication, registering sysfs files, and device logging.
+ *
+ * Return:
+ *   0 on success (driver initialized and ready).
+ *   Negative error code (e.g., -ENODEV, -EIO) on failure to communicate with the sensor,
+ *   invalid chip ID, or any hardware initialization error.
+ *
+ * Details:
+ *   This function is responsible for preparing the BMP280 sensor for operation:
+ *     - Checks the sensor's chip ID to ensure correct device.
+ *     - Resets and configures sensor registers for normal mode.
+ *     - Reads and stores calibration constants from sensor NVM.
+ *     - Registers sysfs attributes to expose sensor readings to userspace.
+ *     - Retrieves calibration register values to compensate for reading values.
+ *   Called automatically by the kernel when the driver matches an I2C device.
+ */
 static int bmp280_probe(struct i2c_client *client)
 {
     printk(KERN_INFO "BMP280: Probed at address 0x%02x\n", client->addr);
@@ -236,21 +284,24 @@ static int bmp280_probe(struct i2c_client *client)
 }
 
 /*
-* Purpose: Cleans up the sensor driver
-*
-*
-* Parameters: 
-*   struct i2c_client *client (input): Represents the specific I2C device instance that matches this driver.
-*       - Can be used for:
-*           > Read/Write via I2C
-*           > Removes registered sysfs files
-*           > Logging things in kernel logs
-*
-*         
-* Return: 
-*   <= 0: Indicates Success 
-*   > 0: Indicates Failure to remove kernel module 
-*/
+ * Purpose:
+ *   Remove function for the BMP280 driver, called when the driver is unloaded
+ *   or the device is removed. Cleans up driver resources, disables the sensor,
+ *   and removes sysfs entries created during initialization.
+ *
+ * Parameters:
+ *   @client: Pointer to the I2C client structure representing the BMP280 device.
+ *            Used for I2C communication, sysfs file management, and device logging.
+ *
+ * Return:
+ *   None. (This function returns void.)
+ *
+ * Details:
+ *   This function is responsible for:
+ *     - Setting the sensor into sleep mode to reduce power consumption.
+ *     - Removing any sysfs attributes/files associated with the device.
+ *   Called automatically by the kernel when the device is removed or the driver is unloaded.
+ */
 static void bmp280_remove(struct i2c_client *client)
 {
     printk(KERN_INFO "BMP280: Removed\n");
