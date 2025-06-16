@@ -4,6 +4,7 @@
 #include <linux/i2c.h>       // For I2C support
 #include <linux/device.h>
 #include <linux/uaccess.h>   // For copy_to_user if needed
+#include <linux/delay.h>
 
 #define DRIVER_NAME "bmp280"
 
@@ -17,50 +18,43 @@ struct bmp280_data {
     dig_P6, dig_P7, dig_P8, dig_P9;
 };
 
-
-static ssize_t temperature_show(struct device *dev, struct device_attribute *attr, char *buf) {
-    printk(KERN_INFO, "Measuring and Displaying the calculated temperature...");
+static ssize_t pressureAndTemperature_show(struct device *dev, struct device_attribute *attr, char *buf) {
+    printk(KERN_INFO "Measuring and Displaying the calculated temperature and pressure...");
 
     struct bmp280_data *data = i2c_get_clientdata(to_i2c_client(dev)); // Used to reference the I2C api
 
-    int msb = i2c_smbus_read_byte_data(data->client, 0xFA);
-    int lsb = i2c_smbus_read_byte_data(data->client, 0xFB);
-    int xlsb = i2c_smbus_read_byte_data(data->client, 0xFC);
+    /* Calculating Temperature... */
+    int msb_T = i2c_smbus_read_byte_data(data->client, 0xFA);
+    int lsb_T = i2c_smbus_read_byte_data(data->client, 0xFB);
+    int xlsb_T = i2c_smbus_read_byte_data(data->client, 0xFC);
 
-    if(msb < 0 || lsb < 0 || xlsb < 0) {
-        dev_err(&data->client->dev, "Failed to read from raw temperature data registers\n");
-        return -EIO
+    if(msb_T < 0 || lsb_T < 0 || xlsb_T < 0) {
+        dev_err(&data->client->dev, "Failed to read from raw Temperature data registers\n");
+        return -EIO;
     }
 
-    long signed int adc = ((msb << 12) | (lsb << 4) | (xlsb >> 4));
+    long signed int adc_T = ((msb_T << 12) | (lsb_T << 4) | (xlsb_T >> 4));
 
     long signed int var1, var2, t_fine, T;
-    var1 = ((((adc >> 3) - ((int32_t)data->dig_T1 << 1))) * ((int32_t)data->dig_T2)) >> 11;
-    var2 = (((((adc >> 4) - ((int32_t)data->dig_T1)) * ((adc >> 4) - ((int32_t)data->dig_T1))) >> 12) * ((int32_t)data->dig_T3)) >> 14;
+    var1 = ((((adc_T >> 3) - ((int32_t)data->dig_T1 << 1))) * ((int32_t)data->dig_T2)) >> 11;
+    var2 = (((((adc_T >> 4) - ((int32_t)data->dig_T1)) * ((adc_T >> 4) - ((int32_t)data->dig_T1))) >> 12) * ((int32_t)data->dig_T3)) >> 14;
 
     t_fine =  var1 + var2;
     T = (t_fine * 5 + 128) >> 8;
 
-    return sprintf(buf, "The Surrounding Temperature is: %d°C\n", T);
-}
+    /* Calculating Pressure */
+    int msb_P = i2c_smbus_read_byte_data(data->client, 0xF7);
+    int lsb_P = i2c_smbus_read_byte_data(data->client, 0xF8);
+    int xlsb_P = i2c_smbus_read_byte_data(data->client, 0xF9);
 
-static ssize_t pressure_show(struct device *dev, struct device_attribute *attr, char *buf) {
-    printk(KERN_INFO, "Measuring and Displaying the calculated pressure...");
-
-    struct bmp280_data *data = i2c_get_clientdata(to_i2c_client(dev)); // Used to reference the I2C api
-
-    int msb = i2c_smbus_read_byte_data(data->client, 0xF7);
-    int lsb = i2c_smbus_read_byte_data(data->client, 0xF8);
-    int xlsb = i2c_smbus_read_byte_data(data->client, 0xF9);
-
-    if(msb < 0 || lsb < 0 || xlsb < 0) {
-        dev_err(&data->client->dev, "Failed to read from raw temperature data registers\n");
-        return -EIO
+    if(msb_P < 0 || lsb_P < 0 || xlsb_P < 0) {
+        dev_err(&data->client->dev, "Failed to read from raw Pressure data registers\n");
+        return -EIO;
     }
 
-    long signed int adc = ((msb << 12) | (lsb << 4) | (xlsb >> 4));
+    long signed int adc_P = ((msb_P << 12) | (lsb_P << 4) | (xlsb_P >> 4));
 
-    long signed int var1, var2, P;
+    long signed int P;
 
     var1 = ((int64_t)t_fine) - 128000;
     var2 = var1 * var1 * (int64_t)data->dig_P6;
@@ -70,22 +64,33 @@ static ssize_t pressure_show(struct device *dev, struct device_attribute *attr, 
     var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)data->dig_P1) >> 33;
 
     if (var1 == 0) {
-        return sprintf(buf, "The Surrounding Pressure is: 0Pa\n")
+        return sprintf(buf, "Temperature: %ld°C\n Pressure: 0Pa\n", T/100);
     } 
 
-    P = 1048576 - adc;
+    P = 1048576 - adc_P;
     P = (((P << 31) - var2) * 3125) / var1;
     var1 = (((int64_t)data->dig_P9) * (P >> 13) * (P >> 13)) >> 25;
     var2 = (((int64_t)data->dig_P8) * P) >> 19;
     P = ((P + var1 + var2) >> 8) + (((int64_t)data->dig_P7) << 4);
 
 
-    return sprintf(buf, "%dPa\n", P); // Returns a dummy  pressure value
+    return sprintf(buf, "Temperature: %ld°C\n Pressure: %ldPa\n", T/100, P/256);
 }
+static struct device_attribute dev_attr_pressureAndTemperature = __ATTR(Bmp280-Calculations, 0444, pressureAndTemperature_show, NULL); //Sysfs object that would be pressure file for the device driver
 
-static struct device_attribute dev_attr_temperature = __ATTR(temperature, 0444, temperature_show, NULL); //Sysfs object that would be temperature file for the device driver
-static struct device_attribute dev_attr_pressure = __ATTR(pressure, 0444, pressure_show, NULL); //Sysfs object that would be pressure file for the device driver
-
+/*
+* Purpose: reads and combines two bytes from two adjacent addresses (Least Significant Byte and Most Significant Byte) for unsigned short types
+*
+*
+* Parameters: 
+*   struct i2c_client *client (input): Represents the specific I2C device instance that matches this driver.
+*   u8 addr (input): address of the Least Significant Byte
+*         
+*
+* Return: 
+*   <= 0: Indicates Success 
+*   > 0: Indicates Failure to read bytes from either adjacent addresses 
+*/
 static unsigned short read_u16_from_i2c(struct i2c_client *client, u8 addr)
 {
     int lsb = i2c_smbus_read_byte_data(client, addr);
@@ -95,7 +100,19 @@ static unsigned short read_u16_from_i2c(struct i2c_client *client, u8 addr)
     return (msb << 8) | lsb;
 }
 
-
+/*
+* Purpose: reads and combines two bytes from two adjacent addresses (Least Significant Byte and Most Significant Byte) for short types
+*
+*
+* Parameters: 
+*   struct i2c_client *client (input): Represents the specific I2C device instance that matches this driver.
+*   u8 addr (input): address of the Least Significant Byte
+*         
+*
+* Return: 
+*   <= 0: Indicates Success 
+*   > 0: Indicates Failure to read bytes from either adjacent addresses 
+*/
 static short read_s16_from_i2c(struct i2c_client *client, u8 addr)
 {
     int lsb = i2c_smbus_read_byte_data(client, addr);
@@ -115,17 +132,15 @@ static short read_s16_from_i2c(struct i2c_client *client, u8 addr)
 *           > Read/Write via I2C
 *           > Register sysfs files
 *           > Logging things in kernel logs
-*
-*   const struct i2c_device_id *id (input):  Can Distinguish between devices set on the same I2C.
 *         
 *
 * Return: 
 *   <= 0: Indicates Success (with 0 being the highest priority to load)
 *   > 0: Indicates Failure to load kernel module 
 */
-static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *id)
+static int bmp280_probe(struct i2c_client *client)
 {
-    printk(KERN_INFO, "BMP280: Probed at address 0x%02x\n", client->addr);
+    printk(KERN_INFO "BMP280: Probed at address 0x%02x\n", client->addr);
 
     u8 chip_id = i2c_smbus_read_byte_data(client, 0xD0);  // Confirms the sensor chip id is 0x58
     if (chip_id != 0x58) {
@@ -212,13 +227,8 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
     data->dig_P9 = read_s16_from_i2c(client, 0x9E);
 
 
-    if(device_create_file(&client->dev, &dev_attr_temperature) < 0) {
-        dev_err(&client_dev, "Failed to load the temperature file");
-        return -EIO;
-    }
-
-    if(device_create_file(&client->dev, &dev_attr_pressure) < 0) {
-        dev_err(&client_dev, "Failed to load the pressure file");
+    if(device_create_file(&client->dev, &dev_attr_pressureAndTemperature) < 0) {
+        dev_err(&client->dev, "Failed to load the sysfs file");
         return -EIO;
     }
 
@@ -241,17 +251,14 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
 *   <= 0: Indicates Success 
 *   > 0: Indicates Failure to remove kernel module 
 */
-static int bmp280_remove(struct i2c_client *client)
+static void bmp280_remove(struct i2c_client *client)
 {
-    printk(KERN_INFO, "BMP280: Removed\n");
+    printk(KERN_INFO "BMP280: Removed\n");
 
     // Sets the 0xF4 register to sleep mode
     i2c_smbus_write_byte_data(client, 0xF4, 0x00);
 
-    device_remove_file(&client->dev, &dev_attr_temperature);
-    device_remove_file(&client->dev, &dev_attr_pressure);
-
-    return 0;
+    device_remove_file(&client->dev, &dev_attr_pressureAndTemperature);
 }
 
 static const struct i2c_device_id bmp280_id[] = { 

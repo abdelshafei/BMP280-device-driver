@@ -18,3 +18,5 @@
 
 - **Datasheet and Register Documentation:**  
   [Bosch BMP280 Datasheet](https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/)
+
+
