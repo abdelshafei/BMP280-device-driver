@@ -10,7 +10,7 @@
 struct bmp280_data {
     struct i2c_client *client; // For outside of probe reference to client
 
-    /* */
+    /* Caliberation registers in BMP 280 */
     unsigned short dig_T1, dig_P1; 
     short dig_T2, dig_T3,
     dig_P2, dig_P3, dig_P4, dig_P5,
@@ -22,13 +22,6 @@ static ssize_t temperature_show(struct device *dev, struct device_attribute *att
     printk(KERN_INFO, "Measuring and Displaying the calculated temperature...");
 
     struct bmp280_data *data = i2c_get_clientdata(to_i2c_client(dev)); // Used to reference the I2C api
-
-    u8 measure_status;
-    int tries = 10;
-    do {
-        measure_status = i2c_smbus_read_byte_data(data->client, 0xF3);
-        msleep(1);
-    } while((measure_status & 0x08) && --tries > 0);
 
     int msb = i2c_smbus_read_byte_data(data->client, 0xFA);
     int lsb = i2c_smbus_read_byte_data(data->client, 0xFB);
@@ -54,7 +47,40 @@ static ssize_t temperature_show(struct device *dev, struct device_attribute *att
 static ssize_t pressure_show(struct device *dev, struct device_attribute *attr, char *buf) {
     printk(KERN_INFO, "Measuring and Displaying the calculated pressure...");
 
-    return sprintf(buf, "10000\n"); // Returns a dummy  pressure value
+    struct bmp280_data *data = i2c_get_clientdata(to_i2c_client(dev)); // Used to reference the I2C api
+
+    int msb = i2c_smbus_read_byte_data(data->client, 0xF7);
+    int lsb = i2c_smbus_read_byte_data(data->client, 0xF8);
+    int xlsb = i2c_smbus_read_byte_data(data->client, 0xF9);
+
+    if(msb < 0 || lsb < 0 || xlsb < 0) {
+        dev_err(&data->client->dev, "Failed to read from raw temperature data registers\n");
+        return -EIO
+    }
+
+    long signed int adc = ((msb << 12) | (lsb << 4) | (xlsb >> 4));
+
+    long signed int var1, var2, P;
+
+    var1 = ((int64_t)t_fine) - 128000;
+    var2 = var1 * var1 * (int64_t)data->dig_P6;
+    var2 = var2 + ((var1 * (int64_t)data->dig_P5) << 17);
+    var2 = var2 + (((int64_t)data->dig_P4) << 35);
+    var1 = ((var1 * var1 * (int64_t)data->dig_P3) >> 8) + ((var1 * (int64_t)data->dig_P2) << 12);
+    var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)data->dig_P1) >> 33;
+
+    if (var1 == 0) {
+        return sprintf(buf, "The Surrounding Pressure is: 0Pa\n")
+    } 
+
+    P = 1048576 - adc;
+    P = (((P << 31) - var2) * 3125) / var1;
+    var1 = (((int64_t)data->dig_P9) * (P >> 13) * (P >> 13)) >> 25;
+    var2 = (((int64_t)data->dig_P8) * P) >> 19;
+    P = ((P + var1 + var2) >> 8) + (((int64_t)data->dig_P7) << 4);
+
+
+    return sprintf(buf, "%dPa\n", P); // Returns a dummy  pressure value
 }
 
 static struct device_attribute dev_attr_temperature = __ATTR(temperature, 0444, temperature_show, NULL); //Sysfs object that would be temperature file for the device driver
@@ -68,6 +94,7 @@ static unsigned short read_u16_from_i2c(struct i2c_client *client, u8 addr)
         return -1; 
     return (msb << 8) | lsb;
 }
+
 
 static short read_s16_from_i2c(struct i2c_client *client, u8 addr)
 {
@@ -156,9 +183,9 @@ static int bmp280_probe(struct i2c_client *client, const struct i2c_device_id *i
     * For t_sb[2 : 0]  we set it to 125 ms since the IIR fc is 4 and we are going with the standard resolution method which is bit value of 010
     *
     * This leaves us with a byte value of 0b01001000 (a.k.a 0x48) which is segmented as follows:
-    * |-------------------------|-------------------------|------|-----------|
-    * |       t_sb[2 : 0]       |      filter[2 : 0]      |      |spi3w_en[0]|
-    * |-------------------------|-------------------------|------|-----------|
+    * |-------------------------|-------------------------|----------|-----------|
+    * |       t_sb[2 : 0]       |      filter[2 : 0]      |(reserved)|spi3w_en[0]|
+    * |-------------------------|-------------------------|----------|-----------|
     */
     if(i2c_smbus_write_byte_data(client, 0xF5, 0x48) < 0) {
         dev_err(&client->dev, "Failed to configure the config register\n");
