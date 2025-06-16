@@ -3,7 +3,6 @@
 #include <linux/init.h>
 #include <linux/i2c.h>       // For I2C support
 #include <linux/device.h>
-#include <linux/uaccess.h>   // For copy_to_user if needed
 #include <linux/delay.h>
 
 #define DRIVER_NAME "bmp280"
