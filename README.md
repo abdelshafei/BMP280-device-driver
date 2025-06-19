@@ -45,11 +45,9 @@ sudo insmod bmp280.ko
 # 3. Instantiate the device
 echo bmp280 0x76 | sudo tee /sys/bus/i2c/devices/i2c-1/new_device
 
-# 4. Navigate to the sysfs directory for your device
-cd /sys/bus/i2c/devices/1-0076/
+# 4. Read temperature and pressure
+cat /sys/bus/i2c/devices/1-0076/Bmp280-Calculations
 
-# 5. Read temperature and pressure
-cat Bmp280-Calculations
 ```
 
 ---
